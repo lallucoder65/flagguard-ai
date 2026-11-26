@@ -61,13 +61,13 @@ export GEMINI_API_KEY="your_gemini_api_key"
 ### 3. Run an Audit
 ```bash
 # Audit sample-repo against production tier
-python flagguard.py ./sample-repo --repo-tier prod
+python agent_audit.py --repo ./sample-repo --repo-tier production
 
 # Audit against staging_repos Flagsmith Segment
-python flagguard.py ./sample-repo --repo-tier staging
+python agent_audit.py --repo ./sample-repo --repo-tier staging
 
-# Export Markdown report & auto-unwrap dead flags with pytest verification
-python flagguard.py ./sample-repo --repo-tier prod --fix --markdown-out audit_report.md
+# Export Markdown report for CI/CD or PR reviews
+python agent_audit.py --repo ./sample-repo --repo-tier production --markdown-out audit_report.md
 ```
 
 ---
