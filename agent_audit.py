@@ -93,33 +93,39 @@ def scan_codebase_with_context(target_dir: str) -> dict[str, list[dict]]:
 
     return found
 
-def fetch_flagsmith_state() -> dict:
-    """Fetches non-archived flags and their Dev/Prod states from Flagsmith."""
-    try:
-        resp = requests.get(
-            f"https://api.flagsmith.com/api/v1/projects/{PROJECT_ID}/features/",
-            headers=FS_HEADERS,
-            timeout=30,
-        )
+def _fetch_all_pages(initial_url: str) -> list[dict]:
+    """Follows Flagsmith API 'next' pagination links so large projects never truncate."""
+    results = []
+    url = initial_url
+    while url:
+        resp = requests.get(url, headers=FS_HEADERS, timeout=30)
         resp.raise_for_status()
-        features = resp.json().get("results", [])
+        data = resp.json()
+        results.extend(data.get("results", []))
+        url = data.get("next")
+    return results
+
+
+def fetch_flagsmith_state() -> dict:
+    """Fetches all non-archived flags and their Dev/Prod states from Flagsmith."""
+    try:
+        features = _fetch_all_pages(
+            f"https://api.flagsmith.com/api/v1/projects/{PROJECT_ID}/features/"
+        )
 
         env_states = {name: {} for name in ENVS}
         env_values = {name: {} for name in ENVS}
         for env_name, env_key in ENVS.items():
-            env_resp = requests.get(
-                f"https://api.flagsmith.com/api/v1/environments/{env_key}/featurestates/",
-                headers=FS_HEADERS,
-                timeout=30,
+            states = _fetch_all_pages(
+                f"https://api.flagsmith.com/api/v1/environments/{env_key}/featurestates/"
             )
-            env_resp.raise_for_status()
-            for s in env_resp.json().get("results", []):
+            for s in states:
                 env_states[env_name][s["feature"]] = s["enabled"]
                 env_values[env_name][s["feature"]] = s.get("feature_state_value")
     except requests.exceptions.RequestException as exc:
         console.print(f"[yellow]Warning: Flagsmith API unreachable ({exc}); continuing with empty cloud state.[/]")
         return {}
-
+        
     cloud = {}
     for f in features:
         if f.get("is_archived"):
