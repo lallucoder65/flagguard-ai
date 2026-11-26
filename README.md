@@ -36,3 +36,46 @@ Stale feature flags create silent technical debt, configuration drift, and unrea
 │  (PR Comment)    │     │  (Auto-Rollback on Fail)│     │  DeadFlagUnwrapper   │
 └──────────────────┘     └─────────────────────────┘     │  (AST Transformer)   │
                                                          └──────────────────────┘
+
+```
+
+---
+
+## Quickstart
+
+### 1. Install Dependencies
+```bash
+git clone [https://github.com/lallucoder65/flagguard-ai.git](https://github.com/lallucoder65/flagguard-ai.git)
+cd flagguard-ai
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment Variables
+```bash
+export FLAGSMITH_ENV_KEY="your_flagsmith_environment_key"
+export GEMINI_API_KEY="your_gemini_api_key"
+```
+
+*(On Windows PowerShell, use `$env:FLAGSMITH_ENV_KEY="..."` and `$env:GEMINI_API_KEY="..."`.)*
+
+### 3. Run an Audit
+```bash
+# Audit sample-repo against production tier
+python flagguard.py ./sample-repo --repo-tier prod
+
+# Audit against staging_repos Flagsmith Segment
+python flagguard.py ./sample-repo --repo-tier staging
+
+# Export Markdown report & auto-unwrap dead flags with pytest verification
+python flagguard.py ./sample-repo --repo-tier prod --fix --markdown-out audit_report.md
+```
+
+---
+
+## GitHub Actions PR Bot Setup
+
+Add these two repository secrets under **Settings → Secrets and variables → Actions**:
+- `FLAGSMITH_ENV_KEY` — Your Flagsmith Server-Side Environment Key
+- `GEMINI_API_KEY` — Your Google Gemini API Key
+
+Every Pull Request targeting `main` automatically executes `.github/workflows/flagguard.yml`, audits changed code against Flagsmith, and posts/updates the lifecycle report comment on the PR.                                                         
