@@ -5,6 +5,7 @@ Built for **Toggle Wars Hackathon — Track 02 (AI Agents & Feature Flags)**
 
 FlagGuard AI audits repositories against live **Flagsmith** environments, classifies flag hygiene with **Google Gemini**, unwraps dead `if/else` branches at the **Python AST** level, verifies safety with an automated **`pytest` rollback gate**, and posts actionable audits directly on **GitHub Pull Requests**.
 
+> **Live GitHub Actions PR Bot Proof:** See [Pull Request #1](https://github.com/lallucoder65/flagguard-ai/pull/1) for a live, automated FlagGuard lifecycle audit report and AI risk breakdown posted by `github-actions[bot]`.
 ---
 
 ## Why FlagGuard AI?
@@ -22,6 +23,18 @@ Stale feature flags create silent technical debt, configuration drift, and unrea
 4. **Automated GitHub PR Bot:** Runs on every Pull Request via `.github/workflows/flagguard.yml`, posting a Markdown audit table directly into the PR conversation.
 
 ---
+
+
+## How Flagsmith Powers FlagGuard (Zero-Hardcoding Control Plane)
+
+If you remove Flagsmith, FlagGuard cannot operate—Flagsmith acts as both the **target system** and the **agent's live governance control plane**:
+- **Dynamic Governance via Remote Config (`flagguard_agent_config`):** Controls `min_age_days` (protecting new flags like `legacy_cart_v1`) and `allow_auto_remediate` without redeploying code.
+- **Identity & Segment Targeting (`--repo-tier`):** Evaluates `flagguard_bot_<tier>` with trait `repo_tier` against the `staging_repos` Flagsmith Segment—enabling autonomous remediation on `staging` while enforcing human approval on `production`.
+- **Cross-Environment Drift Detection:** Compares `Development` vs `Production` feature states via the Flagsmith Management API to catch `ENV_DRIFT` flags (`drift_dark_mode`) before production incidents happen.
+- **Closed-Loop Flagsmith Mutations:** Archives confirmed `DEAD_ORPHAN` flags (`PATCH .../features/{id}/`) and scaffolds missing `GHOST_FLAG` entries (`POST .../features/`) directly from the CLI.
+
+---
+
 
 ## Architecture
 
