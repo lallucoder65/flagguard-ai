@@ -39,3 +39,5 @@ def test_active_flag_preserved():
     """Verify active_checkout remains present in checkout.py."""
     source = CHECKOUT_FILE.read_text(encoding="utf-8")
     assert "active_checkout" in source
+# Trigger FlagGuard PR bot check
+

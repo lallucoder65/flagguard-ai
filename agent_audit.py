@@ -93,29 +93,32 @@ def scan_codebase_with_context(target_dir: str) -> dict[str, list[dict]]:
 
     return found
 
-
 def fetch_flagsmith_state() -> dict:
     """Fetches non-archived flags and their Dev/Prod states from Flagsmith."""
-    resp = requests.get(
-        f"https://api.flagsmith.com/api/v1/projects/{PROJECT_ID}/features/",
-        headers=FS_HEADERS,
-        timeout=10,
-    )
-    resp.raise_for_status()
-    features = resp.json().get("results", [])
-
-    env_states = {name: {} for name in ENVS}
-    env_values = {name: {} for name in ENVS}
-    for env_name, env_key in ENVS.items():
-        env_resp = requests.get(
-            f"https://api.flagsmith.com/api/v1/environments/{env_key}/featurestates/",
+    try:
+        resp = requests.get(
+            f"https://api.flagsmith.com/api/v1/projects/{PROJECT_ID}/features/",
             headers=FS_HEADERS,
-            timeout=10,
+            timeout=30,
         )
-        env_resp.raise_for_status()
-        for s in env_resp.json().get("results", []):
-            env_states[env_name][s["feature"]] = s["enabled"]
-            env_values[env_name][s["feature"]] = s.get("feature_state_value")
+        resp.raise_for_status()
+        features = resp.json().get("results", [])
+
+        env_states = {name: {} for name in ENVS}
+        env_values = {name: {} for name in ENVS}
+        for env_name, env_key in ENVS.items():
+            env_resp = requests.get(
+                f"https://api.flagsmith.com/api/v1/environments/{env_key}/featurestates/",
+                headers=FS_HEADERS,
+                timeout=30,
+            )
+            env_resp.raise_for_status()
+            for s in env_resp.json().get("results", []):
+                env_states[env_name][s["feature"]] = s["enabled"]
+                env_values[env_name][s["feature"]] = s.get("feature_state_value")
+    except requests.exceptions.RequestException as exc:
+        console.print(f"[yellow]Warning: Flagsmith API unreachable ({exc}); continuing with empty cloud state.[/]")
+        return {}
 
     cloud = {}
     for f in features:
@@ -180,7 +183,7 @@ def evaluate_governance_identity(cloud_flags: dict, repo_tier: str) -> dict:
                 "identifier": f"flagguard_bot_{repo_tier}",
                 "traits": [{"trait_key": "repo_tier", "trait_value": repo_tier}],
             },
-            timeout=10,
+            timeout=30,
         )
         if id_resp.ok:
             for item in id_resp.json().get("flags", []):
@@ -272,7 +275,7 @@ def execute_flagsmith_action(flag_name: str, action: str, cloud_info: dict | Non
     """Executes mutating Flagsmith Management API calls after human approval."""
     if action == "ARCHIVE_FLAG" and cloud_info:
         url = f"https://api.flagsmith.com/api/v1/projects/{PROJECT_ID}/features/{cloud_info['id']}/"
-        resp = requests.patch(url, headers=FS_HEADERS, json={"is_archived": True}, timeout=10)
+        resp = requests.patch(url, headers=FS_HEADERS, json={"is_archived": True}, timeout=30)
         resp.raise_for_status()
         console.print(
             f"  [bold green]✓ EXECUTED:[/] Archived '[cyan]{flag_name}[/]' (ID {cloud_info['id']}) in Flagsmith."
@@ -285,7 +288,7 @@ def execute_flagsmith_action(flag_name: str, action: str, cloud_info: dict | Non
             "description": "Auto-scaffolded by FlagGuard after detecting unconfigured code reference.",
             "default_enabled": False,
         }
-        resp = requests.post(url, headers=FS_HEADERS, json=payload, timeout=10)
+        resp = requests.post(url, headers=FS_HEADERS, json=payload, timeout=30)
         resp.raise_for_status()
         new_id = resp.json().get("id")
         console.print(
@@ -586,6 +589,8 @@ if __name__ == "__main__":
             choice = (
                 "y"
                 if auto_mode
+                else "n"
+                if os.getenv("CI") == "true"
                 else console.input(
                     rf"  [bold cyan]>> Execute '{action}' on Flagsmith for '{name}'? \[y/N]: [/]"
                 )
@@ -601,12 +606,15 @@ if __name__ == "__main__":
             choice = (
                 "y"
                 if auto_mode
+                else "n"
+                if os.getenv("CI") == "true"
                 else console.input(
                     rf"  [bold cyan]>> Apply AST-verified if/else unwrapping & export patch for '{name}'? \[y/N]: [/]"
                 )
                 .strip()
                 .lower()
             )
+                
             if choice == "y":
                 patch_file = Path(f"{name}_cleanup.patch")
                 patch_file.write_text(analysis["code_patch"], encoding="utf-8")
