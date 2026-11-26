@@ -586,6 +586,8 @@ if __name__ == "__main__":
             choice = (
                 "y"
                 if auto_mode
+                else "n"
+                if os.getenv("CI") == "true"
                 else console.input(
                     rf"  [bold cyan]>> Execute '{action}' on Flagsmith for '{name}'? \[y/N]: [/]"
                 )
@@ -601,12 +603,15 @@ if __name__ == "__main__":
             choice = (
                 "y"
                 if auto_mode
+                else "n"
+                if os.getenv("CI") == "true"
                 else console.input(
                     rf"  [bold cyan]>> Apply AST-verified if/else unwrapping & export patch for '{name}'? \[y/N]: [/]"
                 )
                 .strip()
                 .lower()
             )
+                
             if choice == "y":
                 patch_file = Path(f"{name}_cleanup.patch")
                 patch_file.write_text(analysis["code_patch"], encoding="utf-8")
