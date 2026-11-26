@@ -30,8 +30,8 @@ FS_HEADERS = {
     "Content-Type": "application/json",
 }
 ENVS = {
-    "Dev": "BrTukFPrbc6d5jGFEy2K8w",
-    "Prod": "AFikpqKycTH6CA6n5ZVYce",
+    "Dev": os.getenv("FLAGSMITH_DEV_ENV_KEY", "BrTukFPrbc6d5jGFEy2K8w"),
+    "Prod": os.getenv("FLAGSMITH_PROD_ENV_KEY", "AFikpqKycTH6CA6n5ZVYce"),
 }
 FLAG_METHODS = {"is_feature_enabled", "has_feature", "get_feature_value"}
 
@@ -49,6 +49,8 @@ def scan_codebase_with_context(target_dir: str) -> dict[str, list[dict]]:
 
     # 1. Python AST scan
     for py_file in root.rglob("*.py"):
+        if py_file.name.startswith("test_") or py_file.name.endswith("_test.py"):
+            continue
         source = py_file.read_text(encoding="utf-8")
         lines = source.splitlines()
         tree = ast.parse(source, filename=str(py_file))
@@ -149,20 +151,47 @@ WORKING_MODEL: str | None = None
 GOVERNANCE_FLAG = "flagguard_agent_config"
 
 
-def load_agent_governance(cloud_flags: dict) -> dict:
-    """Reads live agent behavior rules from Flagsmith's own Remote Config."""
+def evaluate_governance_identity(cloud_flags: dict, repo_tier: str) -> dict:
+    """Evaluates Flagsmith Identity + repo_tier trait to get Segment-targeted Remote Config."""
     policy = {
         "enabled": True,
         "model_priority": AVAILABLE_MODELS,
         "min_age_days": 7,
         "allow_auto_remediate": False,
+        "source": "Environment Default",
     }
-    gov = cloud_flags.get(GOVERNANCE_FLAG)
-    if not gov:
-        return policy
 
-    policy["enabled"] = gov["dev"]
-    raw_val = gov.get("dev_value")
+    gov = cloud_flags.get(GOVERNANCE_FLAG)
+    if gov:
+        policy["enabled"] = gov["dev"]
+        raw_val = gov.get("dev_value")
+    else:
+        raw_val = None
+
+    # Evaluate Flagsmith Identity with repo_tier trait for dynamic Segment overrides
+    try:
+        id_resp = requests.post(
+            "https://edge.api.flagsmith.com/api/v1/identities/",
+            headers={
+                "X-Environment-Key": ENVS["Dev"],
+                "Content-Type": "application/json",
+            },
+            json={
+                "identifier": f"flagguard_bot_{repo_tier}",
+                "traits": [{"trait_key": "repo_tier", "trait_value": repo_tier}],
+            },
+            timeout=10,
+        )
+        if id_resp.ok:
+            for item in id_resp.json().get("flags", []):
+                if item.get("feature", {}).get("name") == GOVERNANCE_FLAG:
+                    policy["enabled"] = bool(item.get("enabled", True))
+                    raw_val = item.get("feature_state_value")
+                    policy["source"] = f"Identity Trait (repo_tier={repo_tier})"
+                    break
+    except Exception:
+        pass
+
     if raw_val:
         try:
             remote_cfg = json.loads(raw_val)
@@ -175,6 +204,11 @@ def load_agent_governance(cloud_flags: dict) -> dict:
             policy["allow_auto_remediate"] = bool(remote_cfg.get("allow_auto_remediate", False))
         except json.JSONDecodeError:
             pass
+
+    # Hard safety guardrail: never auto-mutate production tier without explicit CLI override
+    if repo_tier == "production":
+        policy["allow_auto_remediate"] = False
+
     return policy
 
 
@@ -284,12 +318,10 @@ class DeadFlagUnwrapper(ast.NodeTransformer):
 
     def visit_If(self, node: ast.If):
         self.generic_visit(node)
-        # Case 1: if flagsmith.has_feature("dead_flag"): ... else: fallback
         if self._is_target_flag_call(node.test):
             self.modified = True
             return node.orelse if node.orelse else None
 
-        # Case 2: if not flagsmith.has_feature("dead_flag"): fallback else: ...
         if isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not):
             if self._is_target_flag_call(node.test.operand):
                 self.modified = True
@@ -328,7 +360,6 @@ def apply_verified_dead_code_removal(
     patched_any = False
     seen_files: set[Path] = set()
 
-
     for ref in code_refs:
         filename, _ = ref["location"].split(":")
         file_path = next(Path(target_dir).rglob(filename), None)
@@ -341,7 +372,7 @@ def apply_verified_dead_code_removal(
             tree = ast.parse(original, filename=str(file_path))
             unwrapper = DeadFlagUnwrapper(flag_name)
             new_tree = unwrapper.visit(tree)
-            
+
             if not unwrapper.modified:
                 console.print(
                     f"  [yellow]![/] Could not auto-unwrap complex condition in [bold]{file_path.name}[/]; manual review recommended."
@@ -400,23 +431,66 @@ def render_summary_table(rows: list[tuple[str, str, str, str, str]]):
     console.print(table)
 
 
+def write_markdown_report(
+    out_path: str,
+    repo: str,
+    repo_tier: str,
+    rows: list[tuple[str, str, str, str, str]],
+    findings: list[dict],
+):
+    """Exports a GitHub-flavored Markdown report for automated Pull Request comments."""
+    lines = [
+        "## 🛡️ FlagGuard AI — Feature Flag Audit Report",
+        "",
+        f"- **Target Directory:** `{repo}`",
+        f"- **Evaluated Tier Trait:** `repo_tier={repo_tier}`",
+        "",
+        "| Flag Name | Dev / Prod | Age | Classification | Recommended Action |",
+        "| :--- | :---: | :---: | :---: | :--- |",
+    ]
+    for name, env_str, age_str, status, note in rows:
+        lines.append(f"| `{name}` | {env_str} | {age_str} | **{status}** | {note} |")
+
+    if findings:
+        lines.extend(["", "### 🔍 AI Risk Assessments", ""])
+        for item in findings:
+            lines.append(
+                f"- **`{item['name']}` ({item['status']}):** {item['risk_summary']}"
+            )
+
+    lines.extend(
+        ["", "_Generated automatically by FlagGuard AI (Flagsmith + Gemini + Python AST)._"]
+    )
+    Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    console.print(f"\n[bold green]✓ MARKDOWN REPORT:[/] Exported PR summary to [cyan]{out_path}[/]")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="FlagGuard: Autonomous Feature-Flag Audit & Tech-Debt Agent"
     )
     parser.add_argument("--repo", default="sample-repo", help="Path to target repository directory")
     parser.add_argument(
+        "--repo-tier",
+        default="staging",
+        choices=["staging", "production"],
+        help="Repository environment tier sent as a Flagsmith Identity trait",
+    )
+    parser.add_argument(
         "--auto-approve", action="store_true", help="Auto-execute safe remediations without prompting"
+    )
+    parser.add_argument(
+        "--markdown-out", default=None, help="Optional path to write a Markdown audit report for PR comments"
     )
     parser.add_argument(
         "--verbose", action="store_true", help="Show detailed model fallback and debug logs"
     )
     args = parser.parse_args()
 
-    with console.status("[bold cyan]Scanning repository and syncing Flagsmith state..."):
+    with console.status("[bold cyan]Scanning repository and evaluating Flagsmith Identity traits..."):
         code_refs = scan_codebase_with_context(args.repo)
         cloud_flags = fetch_flagsmith_state()
-        policy = load_agent_governance(cloud_flags)
+        policy = evaluate_governance_identity(cloud_flags, args.repo_tier)
 
     if not policy["enabled"]:
         console.print(
@@ -434,6 +508,8 @@ if __name__ == "__main__":
     console.print(
         Panel(
             f"[bold]Target Repo:[/] [cyan]{args.repo}[/]   "
+            f"[bold]Repo Tier Trait:[/] [blue]{args.repo_tier}[/]\n"
+            f"[bold]Policy Source:[/] [green]{policy['source']}[/]   "
             f"[bold]Primary Model:[/] [green]{AVAILABLE_MODELS[0]}[/]\n"
             f"[bold]Age Guard:[/] [yellow]{policy['min_age_days']} days[/]   "
             f"[bold]Auto-Remediate:[/] [magenta]{auto_mode}[/]",
@@ -444,6 +520,7 @@ if __name__ == "__main__":
 
     all_names = sorted(set(code_refs.keys()) | set(cloud_flags.keys()))
     summary_rows: list[tuple[str, str, str, str, str]] = []
+    markdown_findings: list[dict] = []
 
     for name in all_names:
         if name == GOVERNANCE_FLAG:
@@ -489,6 +566,9 @@ if __name__ == "__main__":
 
         action = analysis["recommended_action"]
         summary_rows.append((name, env_str, age_str, status, action))
+        markdown_findings.append(
+            {"name": name, "status": status, "risk_summary": analysis["risk_summary"]}
+        )
 
         console.print(
             Panel(
@@ -507,7 +587,7 @@ if __name__ == "__main__":
                 "y"
                 if auto_mode
                 else console.input(
-                    f"  [bold cyan]>> Execute '{action}' on Flagsmith for '{name}'? \[y/N]: [/]"
+                    rf"  [bold cyan]>> Execute '{action}' on Flagsmith for '{name}'? \[y/N]: [/]"
                 )
                 .strip()
                 .lower()
@@ -522,7 +602,7 @@ if __name__ == "__main__":
                 "y"
                 if auto_mode
                 else console.input(
-                    f"  [bold cyan]>> Apply AST-verified if/else unwrapping & export patch for '{name}'? \[y/N]: [/]"
+                    rf"  [bold cyan]>> Apply AST-verified if/else unwrapping & export patch for '{name}'? \[y/N]: [/]"
                 )
                 .strip()
                 .lower()
@@ -534,3 +614,8 @@ if __name__ == "__main__":
                 apply_verified_dead_code_removal(name, in_code or [], args.repo)
 
     render_summary_table(summary_rows)
+
+    if args.markdown_out:
+        write_markdown_report(
+            args.markdown_out, args.repo, args.repo_tier, summary_rows, markdown_findings
+        )
