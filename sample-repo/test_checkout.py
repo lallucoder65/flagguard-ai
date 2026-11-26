@@ -1,13 +1,17 @@
 import ast
 import importlib.util
 import inspect
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 SAMPLE_DIR = Path(__file__).parent
 CHECKOUT_FILE = SAMPLE_DIR / "checkout.py"
 
 
 def _load_checkout():
+    if importlib.util.find_spec("flagsmith") is None:
+        sys.modules["flagsmith"] = MagicMock()
     spec = importlib.util.spec_from_file_location("checkout", CHECKOUT_FILE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
