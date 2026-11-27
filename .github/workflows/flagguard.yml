@@ -39,6 +39,9 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           path: audit_report.md
+          
+      - name: Clean up temporary report
+        run: rm -f audit_report.md    
 
       - name: Run AST Unwrapper & pytest Gate (Auto-PR Mode)
         if: github.event_name == 'workflow_dispatch'
