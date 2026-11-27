@@ -29,8 +29,6 @@ jobs:
           CI: "true"
           FLAGSMITH_API_KEY: ${{ secrets.FLAGSMITH_API_KEY }}
           FLAGSMITH_PROJECT_ID: ${{ secrets.FLAGSMITH_PROJECT_ID }}
-          FLAGSMITH_DEV_ENV_KEY: ${{ secrets.FLAGSMITH_DEV_ENV_KEY }}
-          FLAGSMITH_PROD_ENV_KEY: ${{ secrets.FLAGSMITH_PROD_ENV_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python agent_audit.py --repo ./sample-repo --repo-tier staging --markdown-out audit_report.md
 
@@ -49,8 +47,6 @@ jobs:
           CI: "true"
           FLAGSMITH_API_KEY: ${{ secrets.FLAGSMITH_API_KEY }}
           FLAGSMITH_PROJECT_ID: ${{ secrets.FLAGSMITH_PROJECT_ID }}
-          FLAGSMITH_DEV_ENV_KEY: ${{ secrets.FLAGSMITH_DEV_ENV_KEY }}
-          FLAGSMITH_PROD_ENV_KEY: ${{ secrets.FLAGSMITH_PROD_ENV_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python agent_audit.py --repo ./sample-repo --repo-tier staging --auto-unwrap
