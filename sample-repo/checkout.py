@@ -3,11 +3,14 @@ from flagsmith import Flagsmith
 flagsmith = Flagsmith(environment_key="BrTukFPrbc6d5jGFEy2K8w")
 flags = flagsmith.get_environment_flags()
 
-def process_payment(user_id: str):
-    # Healthy flag: active in Flagsmith + used in code
-    if flags.is_feature_enabled("active_checkout"):
-        return "New v2 checkout flow"
-    return "Legacy checkout"
+CHECKOUT_V2_FLAG = "active_checkout"
+
+
+def process_payment(amount: float):
+    # Healthy flag resolved via module constant:
+    if flags.is_feature_enabled(CHECKOUT_V2_FLAG):
+        return "New Stripe v2 Checkout"
+    return "Legacy Checkout"
 
 def search_products(query: str):
     # Ghost flag: referenced in code, completely missing from Flagsmith!

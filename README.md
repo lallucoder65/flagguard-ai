@@ -8,6 +8,31 @@ FlagGuard AI audits repositories against live **Flagsmith** environments, classi
 > **Live GitHub Actions PR Bot Proof:** See [Pull Request #1](https://github.com/lallucoder65/flagguard-ai/pull/1) for a live, automated FlagGuard lifecycle audit report and AI risk breakdown posted by `github-actions[bot]`.
 ---
 
+
+## Native MCP Server (Cursor / Claude Desktop)
+
+FlagGuard also exposes an MCP server (`mcp_server.py`) so AI coding agents can audit feature flags and unwrap dead AST branches directly inside your IDE:
+
+```json
+{
+  "mcpServers": {
+    "flagguard": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {
+        "FLAGSMITH_API_KEY": "your_api_key",
+        "FLAGSMITH_PROJECT_ID": "your_project_id",
+        "FLAGSMITH_DEV_ENV_KEY": "your_dev_env_key",
+        "FLAGSMITH_PROD_ENV_KEY": "your_prod_env_key",
+        "GEMINI_API_KEY": "your_gemini_api_key"
+      }
+    }
+  }
+}
+```
+
+---
+
 ## Why FlagGuard AI?
 
 Stale feature flags create silent technical debt, configuration drift, and unreachable code branches. Standard linters only delete lines—breaking indentation or removing active `else` fallbacks. FlagGuard AI solves this end-to-end:
